@@ -1,0 +1,26 @@
+[Unit]
+Description=technic-show client service
+After=network-online.target avahi-daemon.service roscore.service technic.service
+Wants=network-online.target avahi-daemon.service roscore.service technic.service
+
+[Service]
+Type=simple
+User=orangepi
+Group=orangepi
+WorkingDirectory=/home/orangepi/technic-show/drone
+Environment=HOME=/home/orangepi
+Environment=ROS_HOME=/home/orangepi/.ros
+Environment=ROS_MASTER_URI=http://127.0.0.1:11311
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/root/custom.env
+ExecStart=/usr/local/libexec/technic-show-start.sh
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=0
+KillSignal=SIGINT
+TimeoutStopSec=15
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
