@@ -37,5 +37,5 @@ systemctl restart "$SERVICE"
 echo ">>> Статус сервиса:"
 systemctl status "$SERVICE" --no-pager -l
 
-echo ">>> Последние строки лога:
+echo ">>> Последние строки лога:"
 journalctl -u "$SERVICE" -n 20 --no-pager
