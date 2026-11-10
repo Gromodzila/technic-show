@@ -2,6 +2,7 @@
 Description=technic-show client service
 After=network-online.target avahi-daemon.service roscore.service technic.service
 Wants=network-online.target avahi-daemon.service roscore.service technic.service
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -13,10 +14,9 @@ Environment=ROS_HOME=/home/orangepi/.ros
 Environment=ROS_MASTER_URI=http://127.0.0.1:11311
 Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=-/root/custom.env
-ExecStart=/usr/local/libexec/technic-show-start.sh
+ExecStart=/bin/bash -c ". /home/orangepi/technic_ws/devel/setup.sh 2>/dev/null || . /opt/ros/*/setup.sh; exec /usr/bin/python3 /home/orangepi/technic-show/drone/client.py"
 Restart=on-failure
 RestartSec=5
-StartLimitIntervalSec=0
 KillSignal=SIGINT
 TimeoutStopSec=15
 StandardOutput=journal
