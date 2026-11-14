@@ -21,15 +21,12 @@ except ImportError:
 
 import rospkg
 
-# Import technic or technic package
+# Import technic package
 try:
     from technic import srv
 except ImportError:
-    try:
-        from technic import srv
-    except ImportError:
-        print("Can't import technic or technic! Please check installation of technic ROS package.")
-        exit()
+    print("Can't import technic! Please check installation of technic ROS package.")
+    exit()
 
 # Import flight control
 try:
@@ -130,7 +127,7 @@ mavros_mavlink_logger.addHandler(handler)
 
 class CopterClient(client_core.Client):
     def __init__(self, config_path="config/client.ini"):
-        super(CopterClient, self).__init__(config_path)
+        super().__init__(config_path)
         self.load_config()
         if self.config.technic_dir == 'auto':
             self.check_technic_dir()
@@ -140,7 +137,7 @@ class CopterClient(client_core.Client):
         self.gps_thread_is_running = False
 
     def load_config(self):
-        super(CopterClient, self).load_config()
+        super().load_config()
 
     def check_technic_dir(self):
         rospack = rospkg.RosPack()
@@ -156,11 +153,19 @@ class CopterClient(client_core.Client):
             self.server_connection.whoami = "orangepi"
 
     def on_broadcast_bind(self):
-        repair_chrony(self.config.server_host)
+        try:
+            repair_chrony(self.config.server_host)
+        except Exception as e:
+            logger.warning("Could not sync chrony on broadcast bind: {}".format(e))
 
     def start(self, task_manager_instance):
         rospy.loginfo("Init ROS node")
         rospy.init_node('technic_show_client', anonymous=True)
+        # Ensure time sync is targeted to configured server host
+        try:
+            repair_chrony(self.config.server_host)
+        except Exception as e:
+            logger.warning("Could not configure chrony for {}: {}".format(self.config.server_host, e))
         task_manager_instance.start()
         mavros.start_subscriber()
         self.telemetry = Telemetry()
@@ -169,7 +174,7 @@ class CopterClient(client_core.Client):
             self.start_floor_frame_broadcast()
         elif self.config.flight_frame_id == "gps":
             self.start_gps_frame_broadcast()
-        client_thread = threading.Thread(target=super(CopterClient, self).start, name="Client thread")
+        client_thread = threading.Thread(target=super().start, name="Client thread")
         client_thread.daemon = True
         client_thread.start()
 
@@ -762,7 +767,10 @@ class Telemetry:
 
     @classmethod
     def get_git_version(cls):
-        return subprocess.check_output("git log --pretty=format:'%h' -n 1", shell=True)
+        try:
+            return subprocess.check_output("git log --pretty=format:'%h' -n 1", shell=True, text=True).strip()
+        except Exception:
+            return "unknown"
 
     @classmethod
     def get_config_version(cls):
@@ -871,7 +879,7 @@ class Telemetry:
         round_list = ["battery", "start_position", "current_position"]
         for key in round_list:
             if self.__dict__[key] not in [None, 'NO_POS', 'NO_FCU']:
-                self.__dict__[key] = [round(v, 2) if type(v) == float else v for v in self.__dict__[key]]
+                self.__dict__[key] = [round(v, 2) if isinstance(v, float) else v for v in self.__dict__[key]]
 
     def reset_telemetry_values(self):
         self.battery = float('nan'), float('nan')

@@ -28,12 +28,23 @@ def is_preset_param(value):
     return is_boolean(parsed[0]), is_integer(parsed[1], min=0)
 
 def is_ip_or_local(value):
-    return value if value == 'localhost' else is_ip_addr(value)
+    if value == 'localhost':
+        return value
+    try:
+        return is_ip_addr(value)
+    except Exception:
+        import re
+        if isinstance(value, str) and 1 <= len(value) <= 255:
+            # Allow valid hostnames and mDNS names (.local)
+            if re.match(r'^[a-zA-Z0-9]([a-zA-Z0-9\-_]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-_]{0,61}[a-zA-Z0-9])?)*$', value):
+                return value
+        from validate import VdtValueError
+        raise VdtValueError(value)
 
 
 class ValidationError(ValueError):
     def __init__(self, message, config, errors):
-        super(ValidationError, self).__init__(message)
+        super().__init__(message)
         self.config = config
         self.errors = errors
 

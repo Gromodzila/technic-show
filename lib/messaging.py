@@ -15,11 +15,7 @@ import platform
 import traceback
 
 from contextlib import closing
-
-try:
-    import selectors
-except ImportError:
-    import selectors2 as selectors
+import selectors
 
 
 class Namespace:
@@ -102,11 +98,11 @@ class _Singleton(type):
 
     def __call__(cls, *args, **kwargs):
         if cls not in cls._instances:
-            cls._instances[cls] = super(_Singleton, cls).__call__(*args, **kwargs)
+            cls._instances[cls] = super().__call__(*args, **kwargs)
         return cls._instances[cls]
 
 
-class Singleton(_Singleton('SingletonMeta', (object,), {})):
+class Singleton(metaclass=_Singleton):
     """
     Singleton base class.
     """
@@ -371,7 +367,7 @@ def request_callback(string_command):
     return inner
 
 
-class ConnectionManager(object):
+class ConnectionManager:
     """
     This class represents high-level protocol of TCP connection.
 
@@ -830,7 +826,7 @@ class NotifierSock(Singleton):
         with self._send_lock:
             if self._receiving_sock is None:
                 return
-            self._sending_sock.sendall(bytes(1))
+            self._sending_sock.sendall(b'\x01')
             logger.debug("Notify socket: notified")
 
     def process_events(self, mask):

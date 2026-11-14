@@ -26,7 +26,7 @@ def wait(end, interrupter=INTERRUPTER, maxsleep=0.1):
         #print("Waiting was interrupted!")
 
 
-class TaskManager(object):
+class TaskManager:
     def __init__(self):
         self.task_queue = []
         self._counter = itertools.count()     # unique sequence count

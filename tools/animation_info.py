@@ -83,9 +83,9 @@ if __name__ == "__main__":
     header = animation.get_default_header()
     print("\nOutput frames on fly start action:")
     data = animation.get_table(a.output_frames, header)
-    print (tabulate(data, headers=header))
+    print(tabulate(data, headers=header))
     print("\nOutput frames on takeoff start action:")
     data = animation.get_table(a.output_frames_takeoff, header)
-    print (tabulate(data, headers=header))
+    print(tabulate(data, headers=header))
 
 shutil.rmtree('animation_config')

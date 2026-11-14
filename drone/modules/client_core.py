@@ -1,5 +1,5 @@
 """
-Is a client-side module (meant to be run on Python 2.7) containing base Client class, utility functions and basic callbacks declarations. Main focus of the module is client-specific communication without reliance on `clover` Raspberry Pi environment.
+Client-side module containing base Client class, utility functions and basic callbacks declarations.
 """
 
 import os
@@ -10,10 +10,7 @@ import random
 import socket
 import struct
 import logging
-try:
-    import selectors
-except ImportError:
-    import selectors2 as selectors
+import selectors
 
 from contextlib import closing
 
@@ -30,7 +27,7 @@ from config import ConfigManager
 active_client = None  # needs to be refactored: Singleton \ factory callbacks
 
 
-class Client(object):
+class Client:
     """
     Client base class provides config loading, communication with server (including automatic reconnection, broadcast listening and binding). You can inherit this class in order to extend functionality for practical applications.
     
@@ -99,10 +96,10 @@ class Client(object):
         """
         NTP_PACKET_FORMAT = "!12I"
         NTP_DELTA = 2208988800  # 1970-01-01 00:00:00
-        NTP_QUERY = '\x1b' + 47 * '\0'
+        NTP_QUERY = b'\x1b' + 47 * b'\0'
 
         with closing(socket.socket(socket.AF_INET, socket.SOCK_DGRAM)) as s:
-            s.sendto(bytes(NTP_QUERY), (ntp_host, ntp_port))
+            s.sendto(NTP_QUERY, (ntp_host, ntp_port))
             msg, address = s.recvfrom(1024)
         unpacked = struct.unpack(NTP_PACKET_FORMAT, msg[0:struct.calcsize(NTP_PACKET_FORMAT)])
         return unpacked[10] + float(unpacked[11]) / 2 ** 32 - NTP_DELTA
@@ -137,35 +134,57 @@ class Client(object):
             logger.critical("Caught interrupt, exiting!")
             self.selector.close()
 
-    def _reconnect(self, timeout=2.0, attempt_limit=3):  # TODO reconnecting broadcast listener in another thread
+    def _reconnect(self, timeout=2.0, attempt_limit=3):
         logger.info("Trying to connect to {}:{} ...".format(self.config.server_host, self.config.server_port))
         attempt_count = 0
         while not self.connected:
-            logger.info("Waiting for connection, attempt {}".format(attempt_count))
+            logger.info("Waiting for connection to {}:{}, attempt {}".format(
+                self.config.server_host, self.config.server_port, attempt_count))
             try:
                 self.client_socket = socket.socket()
                 self.client_socket.settimeout(timeout)
                 messaging.set_keepalive(self.client_socket)
                 self.client_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                self.client_socket.connect((self.config.server_host, self.config.server_port))
+
+                # Resolve hostname if needed
+                target_host = self.config.server_host
+                try:
+                    resolved_ip = socket.gethostbyname(target_host)
+                except socket.gaierror as e:
+                    logger.warning("Cannot resolve server hostname '{}': {}. ".format(target_host, e))
+                    if getattr(self.config, 'broadcast_use', False):
+                        logger.info("Broadcast is enabled, listening for server broadcast to discover IP...")
+                        self.broadcast_bind(timeout * 2, attempt_limit)
+                    raise
+
+                self.client_socket.connect((resolved_ip, self.config.server_port))
             except socket.error as error:
                 if isinstance(error, OSError):
                     if error.errno == errno.EINTR:
                         logger.critical("Shutting down on keyboard interrupt")
                         raise KeyboardInterrupt
 
-                logger.warning("Can not connect due error: {}".format(error))
+                logger.warning("Can not connect to {}:{} due to error: {}".format(
+                    self.config.server_host, self.config.server_port, error))
                 attempt_count += 1
-                time.sleep(timeout)
+                # Randomized jitter avoids SYN storm when multiple swarm drones reconnect at once
+                jitter = random.uniform(0.1, 0.4)
+                time.sleep(timeout + jitter)
 
             else:
-                logger.info("Connection to server successful!")
+                logger.info("Connection to server {}:{} successful!".format(
+                    self.config.server_host, self.config.server_port))
                 self._connect()
                 break
 
             if attempt_count >= attempt_limit:
-                logger.info("Too many attempts. Trying to get new server IP")
-                self.broadcast_bind(timeout*2, attempt_limit)
+                if getattr(self.config, 'broadcast_use', False):
+                    logger.info("Too many failed attempts. Broadcast is enabled: listening for server IP broadcast")
+                    self.broadcast_bind(timeout * 2, attempt_limit)
+                else:
+                    logger.debug("Broadcast discovery is disabled (recommended for reliable Wi-Fi). "
+                                 "Continuing direct connection to {}:{}".format(
+                                     self.config.server_host, self.config.server_port))
                 attempt_count = 0
 
     def _connect(self):
@@ -176,6 +195,10 @@ class Client(object):
                                        (self.config.server_host, self.config.server_port))
 
     def broadcast_bind(self, timeout=2.0, attempt_limit=3):
+        if not getattr(self.config, 'broadcast_use', False):
+            logger.debug("Broadcast is disabled in config, skipping broadcast bind")
+            return
+
         broadcast_client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         broadcast_client.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         broadcast_client.settimeout(timeout)
@@ -197,17 +220,39 @@ class Client(object):
                     message = messaging.MessageManager()
                     message.income_raw = data
                     message.process_message()
-                    if message.content and message.jsonheader["action"] == "server_ip":
+                    if message.content and message.jsonheader.get("action") == "server_ip":
                         logger.info("Received broadcast message {} from {}".format(message.content, addr))
 
-                        kwargs = message.content["kwargs"]
-                        self.config.set("SERVER", "port", int(kwargs["port"]))
-                        self.config.set("SERVER", "host", kwargs["host"])
-                        self.config.write()
+                        kwargs = message.content.get("kwargs", {})
+                        raw_host = kwargs.get("host")
+                        new_port = int(kwargs.get("port", self.config.server_port))
+                        sender_ip = addr[0]
 
-                        logger.info("Binding to new IP: {}:{}".format(
-                            self.config.server_host, self.config.server_port))
-                        self.on_broadcast_bind()
+                        # Check if raw_host is an IP or resolvable hostname
+                        target_host = sender_ip
+                        if raw_host:
+                            try:
+                                resolved = socket.gethostbyname(raw_host)
+                                if resolved.startswith("127.") or resolved == "0.0.0.0":
+                                    logger.info("Broadcast host is loopback ({}), using sender IP: {}".format(resolved, sender_ip))
+                                    target_host = sender_ip
+                                else:
+                                    target_host = resolved
+                            except socket.error as e:
+                                logger.warning(
+                                    "Cannot resolve broadcast hostname '{}' ({}). "
+                                    "Falling back to actual sender IP: {}".format(raw_host, e, sender_ip)
+                                )
+                                target_host = sender_ip
+
+                        if target_host and (target_host != self.config.server_host or new_port != self.config.server_port):
+                            self.config.set("SERVER", "port", new_port)
+                            self.config.set("SERVER", "host", target_host)
+                            self.config.write()
+
+                            logger.info("Binding to new server IP: {}:{} (source: broadcast from {})".format(
+                                self.config.server_host, self.config.server_port, addr))
+                            self.on_broadcast_bind()
                         break
         finally:
             broadcast_client.close()

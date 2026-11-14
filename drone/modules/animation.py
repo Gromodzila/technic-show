@@ -80,7 +80,7 @@ def get_duration(frames):
     return duration
 
 
-class Frame(object):
+class Frame:
     params_dict = {
         "number": None,
         "action": 'fly',    # fly, arm, land, stand
@@ -131,7 +131,7 @@ class Frame(object):
     def pose_is_valid(self):
         return self.get_pos() and (self.yaw is not None)
 
-class Animation(object):
+class Animation:
     # filepath - path to csv animation file, config - config 'ANIMATION' section (dictionary)
     def __init__(self, filepath="animation.csv", config=None):
         self.reset(filepath, config)
@@ -169,7 +169,7 @@ class Animation(object):
             self.set_state("Bad animation delay from config 'ANIMATION' section", log_error=True)
             return
         try:
-            animation_file = open(self.filepath, 'rU')
+            animation_file = open(self.filepath, 'r', newline='')
         except IOError:
             self.set_state("File {} can't be opened".format(self.filepath), log_error=True)
         else:
